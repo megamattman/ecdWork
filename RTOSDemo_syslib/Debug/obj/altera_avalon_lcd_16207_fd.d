@@ -1,0 +1,19 @@
+obj/altera_avalon_lcd_16207_fd.o:  \
+ /altera/11.0/ip/altera/sopc_builder_ip/altera_avalon_lcd_16207/HAL/src/altera_avalon_lcd_16207_fd.c \
+  /altera/11.0/ip/altera/nios2_ip/altera_nios2/HAL/inc/alt_types.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/sys/alt_dev.h \
+  system_description/system.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/sys/alt_llist.h \
+  /altera/11.0/ip/altera/nios2_ip/altera_nios2/HAL/inc/alt_types.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/priv/alt_dev_llist.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/sys/alt_llist.h \
+  /altera/11.0/ip/altera/nios2_ip/altera_nios2/HAL/inc/alt_types.h \
+  /altera/11.0/ip/altera/sopc_builder_ip/altera_avalon_lcd_16207/HAL/inc/altera_avalon_lcd_16207.h \
+  /altera/11.0/nios2eds/bin/nios2-gnutools/H-i686-pc-linux-gnu/bin/../lib/gcc/nios2-elf/3.4.6/include/stddef.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/sys/alt_alarm.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/sys/alt_llist.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/priv/alt_alarm.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/os/alt_sem.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/priv/alt_no_error.h \
+  /altera/11.0/ip/altera/sopc_builder_ip/altera_avalon_lcd_16207/HAL/inc/altera_avalon_lcd_16207_fd.h \
+  /altera/11.0/nios2eds/components/altera_hal/HAL/inc/sys/alt_dev.h

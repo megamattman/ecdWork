@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<LOG_ROOT>
+	<PROJECT NAME="testmdo_top">
+		<CBX_INST_ENTRY INSTANCE_NAME="|testmdo_top|o2:inst3|altpll:altpll_component" CBX_FILE_NAME="o2_altpll.v"/>
+		<CBX_INST_ENTRY INSTANCE_NAME="|testmdo_top|oMux:inst6|lpm_mux:LPM_MUX_component" CBX_FILE_NAME="mux_1qc.tdf"/>
+	</PROJECT>
+</LOG_ROOT>
