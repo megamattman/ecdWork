@@ -1,0 +1,14 @@
+Analysis & Synthesis Status : Successful - Tue Feb 11 12:25:06 2014
+Quartus II Version : 11.0 Build 208 07/03/2011 SP 1 SJ Full Version
+Revision Name : counting_matts_top
+Top-level Entity Name : counting_matts_top
+Family : Cyclone III
+Total logic elements : 31
+    Total combinational functions : 31
+    Dedicated logic registers : 27
+Total registers : 27
+Total pins : 6
+Total virtual pins : 0
+Total memory bits : 0
+Embedded Multiplier 9-bit elements : 0
+Total PLLs : 1
