@@ -103,9 +103,6 @@
 #define PWM_TASK_DELAY 51
 #define LCD_TASK_DELAY 56
 
-
-
-
 #define LCD_TASK_ID 4
 #define KEYPAD_TASK_ID 2
 #define PWM_TASK_ID 1
@@ -118,7 +115,7 @@
 int PWMBase[4] =
   { MY_PWM_0_BASE, MY_PWM_1_BASE, MY_PWM_2_BASE, MY_PWM_3_BASE }; 
 int PWMMax[4] = {95,90,110,100};
-int PWMMin[4] = {50,45,53,0};
+int PWMMin[4] = {50,45,53,50};
   
 /*LCD Globals*/
 FILE* pLCDFp;
@@ -206,6 +203,7 @@ void KeyPadReadTask(void* apParameters)
     
   char* lCDTopLineBuffer;
   char* lCDBotLineBuffer;
+  int openClose = 1;
   int state, iA, prevState;  
   int newBSEG[4];
   
@@ -251,6 +249,9 @@ void KeyPadReadTask(void* apParameters)
           lCDBotLineBuffer = ". . . . .";
           playback = 0;
           record = 0;
+          storeOffset = 0;
+          playbackOffset = 0;
+          memset(&storedBSEG,0,sizeof(storedBSEG));
 
           // Move the arm to the central position
           break;
@@ -321,17 +322,29 @@ void KeyPadReadTask(void* apParameters)
           break;
         }
         
-        /*
+        
         // Open gripper
       case MOVE_GRIPPER:
         {
           lCDTopLineBuffer = "Gripper Opening";
           lCDBotLineBuffer = "";
-          positionChanged = 1;
+          printf("G=%d\n", newBSEG[GRIPPER]);
+          if (newBSEG[GRIPPER] == PWMMax[GRIPPER]-1)
+          {
+            newBSEG[GRIPPER] = PWMMin[GRIPPER]+1;
+          }
+          else
+          {
+            newBSEG[GRIPPER] = PWMMax[GRIPPER]-1;
+          }
+          
+          //IOWR_ALTERA_AVALON_PWM_DUTY(PWMBase[GRIPPER], newBSEG[GRIPPER]);
+   
+          //printf("kypd: G=%d\n", deviceData->mpNewBSEG[GRIPPER]);
           //Cause the gripper to open
           break;
         }
-        */
+        
         // Close gripper
         /*
       case CLOSE_GRIPPER:
@@ -354,7 +367,7 @@ void KeyPadReadTask(void* apParameters)
           break;
         }
         
-        // Playback
+        // PlaybacknewBSEG[GRIPPER] = PWMMin[GRIPPER];
         
       case PLAY_PAUSE:
         {
@@ -406,8 +419,14 @@ void KeyPadReadTask(void* apParameters)
       {
         deviceData->mpNewBSEG[iA] = newBSEG[iA];  
       }
-      
-     
+      if (record == 1)
+      {
+        IOWR_ALTERA_AVALON_PIO_DATA(LEDS_BASE, 128);
+      }
+      if (playback == 1)
+      {
+        IOWR_ALTERA_AVALON_PIO_DATA(LEDS_BASE, 32);
+      }
       
       vTaskDelay(KEYPAD_TASK_DELAY);
      // }//end If oldbutton!=state      
@@ -436,7 +455,7 @@ void InitialiseLCDScreen()
 void InitialisePWM()
 {
   int i; 
-  for (i = 0; i < 3; i++)
+  for (i = 0; i < 4; i++)
     {
       IOWR_ALTERA_AVALON_PWM_CLK_DIV(PWMBase[i], 100);
       IOWR_ALTERA_AVALON_PWM_PERIOD(PWMBase[i], 1000);
@@ -452,58 +471,119 @@ void InitialisePWM()
   deviceData->mpCurrentBSEG[ELBOW] = DEFAULT_ELBOW;
   deviceData->mpCurrentBSEG[SHOULDER] = DEFAULT_SHOULDER;
   deviceData->mpCurrentBSEG[GRIPPER] = DEFAULT_GRIPPER;
+  
+  
  // printf("B=%d S=%d E=%d G=%d\n", deviceData->mpNewBSEG[BASE], deviceData->mpNewBSEG[SHOULDER], 
   //                                deviceData->mpNewBSEG[ELBOW], deviceData->mpNewBSEG[GRIPPER]);
 }
 
 void PWMWriteTask(void* pParameters)
 {
-   int iA = 0;
-   int PWMBSEG[4] = {0,0,0,0};    
+   int iA = 0, iB = 0, dir = 0;
+   int PWMBSEG[4] = {0,0,0,0}; 
+   int diff = 0;   
    for(;;){
     IOWR_ALTERA_AVALON_PIO_DATA(LEDS_BASE, 2);
     //printf("pwm write task\n");
-       //printf("pwm: B=%d S=%d E=%d G=%d\n", deviceData->mpNewBSEG[BASE], deviceData->mpNewBSEG[SHOULDER], 
-       //                           deviceData->mpNewBSEG[ELBOW], deviceData->mpNewBSEG[GRIPPER]);
+      // printf("pwm: B=%d S=%d E=%d G=%d\n", deviceData->mpNewBSEG[BASE], deviceData->mpNewBSEG[SHOULDER], 
+      //                           deviceData->mpNewBSEG[ELBOW], deviceData->mpNewBSEG[GRIPPER]);
     //printf("B=%d S=%d E=%d G=%d\n", base, shoulder, elbow, gripper);
     
     //determine mode, if playback active look at stored values 
      if (playback == 1)
      {
-       for (iA = 0; iA < 4; iA++)
-       { 
-         PWMBSEG[iA] = storedBSEG[(iA+(playbackOffset*3))];
+       for (iA = 0; iA < 4; iA++)       {
+        
+         PWMBSEG[iA] = storedBSEG[(iA+(playbackOffset*4))];
+         //printf("Retrieved Valeus = %d B=%d S=%d E=%d G=%d\n", 
+         //           playbackOffset, storedBSEG[BASE], storedBSEG[SHOULDER], storedBSEG[ELBOW], storedBSEG[GRIPPER]);
          playbackOffset += 1;
        } 
+       if (playbackOffset == storeOffset)
+       {
+        playback = 0;
+       }
      }
      else
      {
        for (iA = 0; iA < 4; iA++)
-       { 
+       {      
          PWMBSEG[iA] = deviceData->mpNewBSEG[iA];
        } 
      }  
        
        
-     for (iA = 0; iA < 3; iA++)
+     for (iA = 0; iA < 4; iA++)
      { 
-        if (PWMBSEG[iA] > PWMMin[iA] && PWMBSEG[iA] < PWMMax[iA])
+        //printf("pwm: iA=%d\n", iA); 
+        if (PWMBSEG[iA] > PWMMin[iA] && PWMBSEG[iA] < PWMMax[iA]) // if within raqnge
         {
-           IOWR_ALTERA_AVALON_PWM_DUTY(PWMBase[iA], PWMBSEG[iA]);
+           
            if (playback == 0)
-           {            
+           {       
+            //printf("pwm: iA=%d\n", iA);     
+            IOWR_ALTERA_AVALON_PWM_DUTY(PWMBase[iA], PWMBSEG[iA]); //write to PWM
              deviceData->mpCurrentBSEG[iA] = PWMBSEG[iA];
+            /*
+             if (iA == GRIPPER)
+             {
+                printf("pwm: G=%d\n", deviceData->mpNewBSEG[GRIPPER]);
+             }
+             */
            }
-           if (record == 1 && deviceData->mpNewBSEG[iA] != storedBSEG[(iA+(storeOffset*3))])
+           if (record == 1)
            {
              //increment offset and save current pwm values
-             storeOffset +=1;
-             storedBSEG[(iA+storeOffset)] = PWMBSEG[iA]; 
+             //printf("pwmRec: Real=%d Stored=%d, iA=%d\n", deviceData->mpNewBSEG[iA], storedBSEG[(iA+(storeOffset*4))], iA);             
+             storedBSEG[(iA+storeOffset*4)] = PWMBSEG[iA];
+             
              if (storeOffset >= 100)
              {
                 record = 0;                
+             }
+             if (iA == GRIPPER)
+             { 
+                printf("Store offset = %d B=%d S=%d E=%d G=%d\n", storeOffset, 
+                        storedBSEG[BASE+(storeOffset*4)], 
+                        storedBSEG[SHOULDER+(storeOffset*4)], 
+                        storedBSEG[ELBOW+(storeOffset*4)], 
+                        storedBSEG[GRIPPER+(storeOffset*4)]);
+                record = 0;
+                storeOffset += 1;
+                
              }          
            }
+           else if (playback == 1) //playback mdoe activated
+           {
+            //IOWR_ALTERA_AVALON_PWM_DUTY(PWMBase[iA], PWMBSEG[iA]); //write to PWM
+            //usleep(1000);
+            //at this point the PWMBSEG array should ahve a set of stored values
+            
+            if (deviceData->mpCurrentBSEG[iA] > PWMBSEG[iA])
+            {
+               diff = (deviceData->mpCurrentBSEG[iA] - PWMBSEG[iA]);
+               dir = 1;
+            }
+            else
+            {
+                diff = (PWMBSEG[iA] - deviceData->mpCurrentBSEG[iA]);
+                dir = 0;
+            }
+            for (iB = 0; iB<diff; iB++)
+            {
+                if (dir == 1)
+                {
+                    IOWR_ALTERA_AVALON_PWM_DUTY(PWMBase[iA], deviceData->mpCurrentBSEG[iA]-1);
+                }
+                else
+                {
+                    IOWR_ALTERA_AVALON_PWM_DUTY(PWMBase[iA], deviceData->mpCurrentBSEG[iA]+1);
+                }
+                usleep(100);
+            }
+            deviceData->mpCurrentBSEG[iA] =  PWMBSEG[iA];           
+            
+           }           
         }
         else
         {

@@ -1,0 +1,560 @@
+/*
+    FreeRTOS V6.0.1 - Copyright (C) 2009 Real Time Engineers Ltd.
+
+    ***************************************************************************
+    *                                                                         *
+    * If you are:                                                             *
+    *                                                                         *
+    *    + New to FreeRTOS,                                                   *
+    *    + Wanting to learn FreeRTOS or multitasking in general quickly       *
+    *    + Looking for basic training,                                        *
+    *    + Wanting to improve your FreeRTOS skills and productivity           *
+    *                                                                         *
+    * then take a look at the FreeRTOS eBook                                  *
+    *                                                                         *
+    *        "Using the FreeRTOS Real Time Kernel - a Practical Guide"        *
+    *                  http://www.FreeRTOS.org/Documentation                  *
+    *                                                                         *
+    * A pdf reference manual is also available.  Both are usually delivered   *
+    * to your inbox within 20 minutes to two hours when purchased between 8am *
+    * and 8pm GMT (although please allow up to 24 hours in case of            *
+    * exceptional circumstances).  Thank you for your support!                *
+    *                                                                         *
+    ***************************************************************************
+
+    This file is part of the FreeRTOS distribution.
+
+    FreeRTOS is free software; you can redistribute it and/or modify it under
+    the terms of the GNU General Public License (version 2) as published by the
+    Free Software Foundation AND MODIFIED BY the FreeRTOS exception.
+    ***NOTE*** The exception to the GPL is included to allow you to distribute
+    a combined work that includes FreeRTOS without being obliged to provide the
+    source code for proprietary components outside of the FreeRTOS kernel.
+    FreeRTOS is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+    more details. You should have received a copy of the GNU General Public 
+    License and the FreeRTOS license exception along with FreeRTOS; if not it 
+    can be viewed here: http://www.freertos.org/a00114.html and also obtained 
+    by writing to Richard Barry, contact details for whom are available on the
+    FreeRTOS WEB site.
+
+    1 tab == 4 spaces!
+
+    http://www.FreeRTOS.org - Documentation, latest information, license and
+    contact details.
+
+    http://www.SafeRTOS.com - A version that is certified for use in safety
+    critical systems.
+
+    http://www.OpenRTOS.com - Commercial support, development, porting,
+    licensing and training services.
+*/
+
+/*******************************************************************
+ * This example has been heavily modified from the original to model the 
+ * examples in the RTOS manual 
+ * NJG 02/12/09 */
+
+/* Standard includes. */
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <math.h>
+
+/* Scheduler includes. */
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include "semphr.h"
+
+#include "system.h"
+#include "altera_avalon_pio_regs.h"
+#include "altera_avalon_lcd_16207_regs.h"
+#include "alt_types.h"
+#include "altera_avalon_timer_regs.h"
+#include "pwm.h"
+#include "emu.h"
+#include "lcd.h"
+/* Altera HAL includes for timestamp timer */
+#include "sys/alt_timestamp.h"
+
+/*state machine states*/
+#define EMERGENCY        0
+#define RESET            1
+#define MOVE_LEFT        2
+#define MOVE_RIGHT       3
+#define MOVE_UP          4
+#define MOVE_DOWN        5
+#define MOVE_FORWARD     6
+#define MOVE_BACKWARD    7
+#define OPEN_GRIPPER     8
+#define CLOSE_GRIPPER    9
+#define RECORD_PATH     10
+#define PLAYBACK        11
+#define MENU            12
+#define EXIT            13
+
+#define STEP            5
+
+/*Queue defines*/
+#define QUEUE_LENGTH 5
+#define QUEUE_ITEM_SIZE sizeof(xQueueItem)
+/*LCD defines*/
+#define MAX_BUFFER_LENGTH 16
+
+/*Item Struct*/
+typedef struct
+{
+    short mTaskID;
+    char* pLCDTopLineBuffer;
+    char* pLCDBotLineBuffer;
+    double* pNewXYZ;
+    char mGripState;
+    char mXYZChanged;
+}xQueueItem;
+
+xSemaphoreHandle mMutex;
+
+/*RTOS Scheduler Gloabls*/
+xQueueHandle mQueue;
+
+/*RTOS Shecduler tasks*/
+void TaskRecieveFromQueue(void *pvParameters);
+void StateMachine(void* pvParameters);
+
+/*PWM Globals*/
+int PWMBase[4] = {MY_PWM_0_BASE, MY_PWM_1_BASE, MY_PWM_2_BASE, MY_PWM_3_BASE};
+double currentXYZ[3] = {50.0,50.0,50.0};
+double lastLegalXYZ[3] = {50.0,50.0,50.0};
+int gripperState = 0;
+/*LCD Globals*/
+FILE* pLCDFp;
+char* pCurrentLCDTopLineBuffer = "DEADDEADDEADDEAD";
+char* pCurrentLCDBotLineBuffer = "BEEFBEEFBEEFBEEF";
+
+int main( void )
+{
+
+  InitialiseLCDScreen();
+ 
+ mQueue = xQueueCreate(QUEUE_LENGTH, QUEUE_ITEM_SIZE);
+ WriteToLCDScreen("Starting Queue",""); 
+ IOWR_ALTERA_AVALON_PIO_DATA(LEDS_BASE, 0);
+ xTaskCreate(StateMachine, "task 1", 1000,(void *)1, 2, NULL);
+ xTaskCreate(TaskRecieveFromQueue, "task 2", 1000,(void *)2, 1, NULL);
+ 
+ WriteToLCDScreen("Starting Scheduler","");      
+    /* Finally start the scheduler. */
+ vTaskStartScheduler();
+    
+   /* Will only reach here if there is insufficient heap available to start
+   the scheduler. */
+   for( ;; );
+   
+   
+}
+//this task is responsible for taking things off the queue
+//and then calling the appropriate functions
+void TaskRecieveFromQueue(void *pvParameters)
+{
+    xQueueItem mReceivedItem;
+    portBASE_TYPE mStatus;    
+    //writeScreen("Task Recieve",""); 
+    //here the task is wating for a full queue
+    for (;;)
+    {        
+        if (uxQueueMessagesWaiting(mQueue) != QUEUE_LENGTH)
+        {
+            //writeScreen("queue","not full");
+            //usleep(10000);
+            taskYIELD();
+        }
+    
+    mStatus = xQueueReceive( mQueue, &mReceivedItem, 0);
+    if (mStatus == pdPASS)
+    {
+        //writeScreen("Task Recieve",""); 
+        switch (mReceivedItem.mTaskID)
+        {           
+            case 1:     WriteToLCDScreen(mReceivedItem.pLCDTopLineBuffer, mReceivedItem.pLCDBotLineBuffer);
+                        if (mReceivedItem.mXYZChanged == 1)
+                        {
+                           // printf("newXYZ: X=%d Y=%d Z=%d\n", (int)mReceivedItem.pNewXYZ[X],(int)mReceivedItem.pNewXYZ[Y],(int)mReceivedItem.pNewXYZ[Z]);
+                           // printf("oldXYZ: X=%d Y=%d Z=%d\n", (int)currentXYZ[X],(int)currentXYZ[Y],(int)currentXYZ[Z]);
+                            CalculateMovementAngles(mReceivedItem.pNewXYZ, currentXYZ,lastLegalXYZ, mReceivedItem.mGripState);
+                        }
+                        break;
+            default:    printf("Strange ID recieved\n");
+                        break;
+        }
+    }
+    //IOWR_ALTERA_AVALON_PIO_DATA(LEDS_BASE, count);
+    vTaskDelay(100);
+    }
+    
+}
+//clear screen function, this will move the cursor to the begining on each
+//line and then clear all characters on the line
+void ClearLCDScreen()
+{
+   fprintf(pLCDFp,CLEAR_SCREEN); 
+   usleep(100);
+}
+
+void WriteToLCDScreen(char* buffer1, char* buffer2)
+{   
+    char mLCDTopLineWrite, mLCDBotLineWrite;
+    mLCDTopLineWrite = strcmp(buffer1, pCurrentLCDTopLineBuffer);   
+    mLCDBotLineWrite = strcmp(buffer2, pCurrentLCDBotLineBuffer);
+    IOWR_ALTERA_AVALON_PIO_DATA(LEDS_BASE, mLCDTopLineWrite);
+    if (mLCDTopLineWrite != 0)
+    {
+       WriteToLCDLine(1, buffer1);      
+       pCurrentLCDTopLineBuffer = buffer1;
+       
+    }
+    if (mLCDBotLineWrite !=0)
+    {
+        WriteToLCDLine(2, buffer2);
+        pCurrentLCDBotLineBuffer = buffer2;
+    }
+}
+void WriteToLCDLine(int destLine, char* buffer)
+{
+  fprintf(pLCDFp,"\e[%d;1H\e[K%s",destLine,buffer);  
+  usleep(1000);
+}
+
+void StateMachine(void* pvParameters)
+{
+    char* mLCDTopLineBuffer;
+    char* mLCDBotLineBuffer;
+    int mState;
+        
+    portBASE_TYPE mStatus;
+    xQueueItem mTxPacket;
+    
+    const portTickType mTicksToWait = 250 / portTICK_RATE_MS;
+    
+    for (;;)
+    {
+      //state = IORD_ALTERA_AVALON_PIO_DATA(COLLS_BASE);
+      mState = IORD_ALTERA_AVALON_PIO_DATA(SWITCHES_BASE);
+      double mNewXYZ[3] = {0.0,0.0,0.0};
+      int iA;
+      
+      for (iA = 0; iA<3; iA++)
+      {
+        mNewXYZ[iA] = currentXYZ[iA];
+      }
+      int mPositionChanged = 0;
+      switch(mState)
+      {
+              // Emergency Stop
+          case EMERGENCY :
+            {
+                mLCDTopLineBuffer = "Emergency Stop";
+                mLCDBotLineBuffer = "Press Q to enable";                
+                // Stop ALL movements immediatly
+                // Do not allow movement until some condition has been met
+                break;
+            }
+        
+            // Reset
+        case RESET :
+            {
+                mNewXYZ[X] = DEFAULT_X;
+                mNewXYZ[Y] = DEFAULT_Y;
+                mNewXYZ[Z] = DEFAULT_Z;
+                mPositionChanged = 1;
+                mLCDTopLineBuffer = "Reset";
+                mLCDBotLineBuffer = ". . . . .";
+                
+                // Move the arm to the central position
+                break;
+            }
+            // Move Left
+        case MOVE_LEFT :
+            {
+                mLCDTopLineBuffer = "Arm Moving Left";
+                mNewXYZ[Y] += 5;
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                mPositionChanged = 1;
+                  
+                // Cause the arm to move to the left
+                break;
+            }
+            // Move Right
+        case MOVE_RIGHT : 
+            {
+                mNewXYZ[Y] -= 5;                
+                mLCDTopLineBuffer = "Arm Moving Right";
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                mPositionChanged = 1;
+                //new_coords[Y] += 4    
+                // Cause the arm to move to the right
+                break;
+            }
+            // Move Up
+        case MOVE_UP :
+            {
+                mNewXYZ[Z] += STEP;            
+                mLCDTopLineBuffer = "Arm Moving Up";
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                mPositionChanged = 1;
+                // Cause the arm to move upwards
+                break;
+            }
+            //Move Down
+        case MOVE_DOWN :
+            {
+                mNewXYZ[Z] -= STEP;             
+                mLCDTopLineBuffer = "Arm Moving Down";
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                mPositionChanged = 1;
+                // Cause the arm to move downwards
+                break;
+            }
+            //Move Forwards
+        case MOVE_FORWARD :
+            {
+                //elbow movement, don't use ik code
+                //z+5
+                mLCDTopLineBuffer = "Arm Moving Fwd";
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                mPositionChanged = 1;
+                // Cause the arm to move forwards
+                break;
+            }
+            // Move Backwards
+        case MOVE_BACKWARD :
+            {
+                mLCDTopLineBuffer = "Arm Moving Bck";                
+                //mNewXYZ[Z] -= 5;
+                
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ); //mNewXYZ
+                mPositionChanged = 1;
+                // Cause the arm to move backwards
+                break;
+            }
+            // Open gripper
+        case OPEN_GRIPPER :
+            {
+                mLCDTopLineBuffer = "Gripper Opening";
+                mLCDBotLineBuffer = "";
+                //mPositionChanged = 0;
+                // Cause the gripper to open
+                break;
+            }
+            // Close gripper
+        case CLOSE_GRIPPER :
+            {
+                mLCDTopLineBuffer = "Gripper Closing";
+                mLCDBotLineBuffer = "";
+                //mPositionChanged = 0;
+                // Cause the gripper to close
+                break;
+            }
+        
+            // Record Path
+        case RECORD_PATH :
+            {
+                mLCDTopLineBuffer = "Recording Path";
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                
+                // Record all movements made until recoding is stopped
+                break;
+            }
+            // Playback
+        case PLAYBACK :
+            {
+                mLCDTopLineBuffer = "Replaying Path";
+                mLCDBotLineBuffer = CreateXYZString(mNewXYZ);
+                
+                // Carry out all recorded moves until stopped or completed
+                break;
+            }
+            // Menu Function
+        case MENU :
+            {
+                //TODO: think about menu options
+                mLCDTopLineBuffer = "Menu L/R Scrolls";
+                mLCDBotLineBuffer = "1: Option One";
+                
+                // Display a menu which allows control over settings etc.
+            
+                break;
+            }
+        case EXIT :
+            {
+                mLCDTopLineBuffer = "Exiting";
+                mLCDBotLineBuffer = ". . . . ";
+                break;
+            }
+        default :
+            {
+                printf ("No valid option was selected\n");
+            }
+        }//endcase         
+        mTxPacket.mTaskID = 1;
+        mTxPacket.pLCDTopLineBuffer = mLCDTopLineBuffer;
+        mTxPacket.pLCDBotLineBuffer = mLCDBotLineBuffer;
+        mTxPacket.mXYZChanged = mPositionChanged;
+        mTxPacket.pNewXYZ = (double *)mNewXYZ;
+        mStatus = xQueueSendToBack(mQueue, &mTxPacket,portMAX_DELAY);
+        if (mStatus != pdPASS)
+        {
+            WriteToLCDScreen("Could not write to Q ","");
+        }  
+        vTaskDelay(mTicksToWait * mTxPacket.mTaskID * mTxPacket.mTaskID);   
+    }//end for
+}//endfunc
+
+char* CreateXYZString(double* apNewXYZ)
+{
+    char* pAngleStringBuffer;        
+    pAngleStringBuffer = (char *) malloc (sizeof(char[MAX_BUFFER_LENGTH]));
+    sprintf(pAngleStringBuffer,"X=%d Y=%d Z=%d\n",(int)apNewXYZ[X],(int)apNewXYZ[Y],(int)apNewXYZ[Z]);    
+    return pAngleStringBuffer;
+}
+
+void InitialiseLCDScreen()
+{
+    pLCDFp = fopen("/dev/lcd","w+"); 
+}
+
+void InitialisePWM(double* cur_xyz, int* gripperState)
+{    
+    int i;
+    double defaultArmValues[3] = {DEFAULT_X, DEFAULT_Y, DEFAULT_Z}; 
+    for (i = 0 ; i < 3 ; i++)
+    {
+      IOWR_ALTERA_AVALON_PWM_CLK_DIV(PWMBase[i], 100);
+      IOWR_ALTERA_AVALON_PWM_PERIOD(PWMBase[i], 1000);
+      IOWR_ALTERA_AVALON_PWM_CONTROL(PWMBase[i], 1);
+    }
+    
+    *gripperState = 0;
+    CalculateMovementAngles(defaultArmValues, cur_xyz, lastLegalXYZ, *gripperState);
+}
+
+
+/*
+  Converts raw information to usable angle information that is written to the arm
+  using inverse kinematics
+  @apNewXYZ: the new data, this is a modified version of the current position
+  @apCurrXYZ: the current position this is used to write to the arm if xyz 
+               is outside the acceptable range
+  @amNewGripperState: a value that is unique to manipulating the gripper
+ */
+void CalculateMovementAngles(double* apNewXYZ, double* apCurrXYZ, double* lastLegal, int amNewGripperState)
+{
+    double newCoordsMeters[3] = {0.0, 0.0, 0.0};
+    double wristAngles[3] = {0.0, 0.0, 0.0};
+    double armAngles[5] = {0.0,0.0,0.0,0.0,0.0};
+    int armAnglesInt[5] = {0,0,0,0,0};
+    int baseOut, shoulderOut, gripperOut, iA;
+    double cosBaseAngle, tempMath1, tempMath2, tempMath3;
+    for ( iA = 0 ; iA < 3 ; iA++)
+    {
+        newCoordsMeters[iA] = apNewXYZ[iA] / 100;
+    }
+  // printf("newXYZ: X=%d Y=%d Z=%d\n", (int)apNewXYZ[X],(int)apNewXYZ[Y],(int)apNewXYZ[Z]);
+  //printf("oldXYZ: X=%d Y=%d Z=%d\n", (int)apCurrXYZ[X],(int)apCurrXYZ[Y],(int)apCurrXYZ[Z]);
+   
+    //base angle
+    armAngles[BASE] = atan2(newCoordsMeters[Y],newCoordsMeters[X]);
+    cosBaseAngle = cos(armAngles[BASE]);
+    armAngles[BASE] = (wristAngles[BASE] * (180/PI));
+    
+    //Wrist positon
+    wristAngles[X] = (newCoordsMeters[X] - (LINK_LENGTH_4 * cosBaseAngle))/cosBaseAngle;
+    wristAngles[Y] = 0;
+    wristAngles[Z] = newCoordsMeters[Z] - LINK_LENGTH_1;
+    //base end
+    //Elbow
+    //MATHS!! using elbow math variables
+    tempMath1 = ((wristAngles[X]*wristAngles[X]) + (wristAngles[Z]*wristAngles[Z]) - (LINK_LENGTH_2*LINK_LENGTH_2) - (LINK_LENGTH_3*LINK_LENGTH_3))/(2*LINK_LENGTH_2*LINK_LENGTH_3);
+    tempMath2 =  (1-(tempMath1*tempMath1));
+    if (tempMath2 < 0) // prevent negative number propagating through calculations
+    {
+        tempMath2 = 0;
+    }
+    tempMath2 = sqrt(tempMath2);
+    tempMath3 = -1*  tempMath2;
+    //
+    armAngles[ELBOW1] = (atan2(tempMath2,tempMath1))/(PI/180);
+    armAngles[ELBOW2] = (atan2(tempMath3,tempMath1))/(PI/180);
+    //elbow end
+    //shoulder
+    tempMath1 = LINK_LENGTH_2+LINK_LENGTH_3*tempMath1;  
+    tempMath2 = LINK_LENGTH_3*tempMath3;        
+    tempMath3 = sqrt((tempMath1*tempMath1) + (tempMath2*tempMath2));
+
+    armAngles[SHOULDER1] = (atan2((wristAngles[Z]/tempMath3),(wristAngles[X]/tempMath3)))-(atan2(tempMath2,tempMath1));  
+    armAngles[SHOULDER1] = armAngles[SHOULDER1]/(PI/180);
+    armAngles[SHOULDER2] = (atan2((wristAngles[Z]/tempMath3),(wristAngles[X]/tempMath3)))-(atan2((-1*tempMath2),tempMath1));
+    armAngles[SHOULDER2] = armAngles[SHOULDER2]/(PI/180);
+
+
+    for ( iA = 0 ; iA < 5; iA++)
+    {
+       armAnglesInt[iA] = (int)floor(armAngles[iA]);
+    }
+//write to arm
+    printf("base = %d, Shoulder = %d\n", armAnglesInt[BASE], armAnglesInt[SHOULDER2]);
+    if((armAnglesInt[BASE] <= 45 && armAnglesInt[BASE] >= -45) && 
+                (armAnglesInt[SHOULDER2] <= 45 && armAnglesInt[SHOULDER2] >= -45))
+     {
+       baseOut = MapValueToPWMRange(armAnglesInt[BASE],-45,45,50,100);
+       shoulderOut= MapValueToPWMRange(armAnglesInt[SHOULDER2],45,-45,50,100);
+       gripperOut = MapValueToPWMRange(amNewGripperState,0,1,50,100);
+       for ( iA =0 ; iA < 3 ; iA++)
+       {
+        //the last legal angles
+         lastLegal[iA] = apNewXYZ[iA] - STEP;
+         apCurrXYZ[iA] = apNewXYZ[iA];
+       }           
+     }
+     else
+     {
+        printf("NOT LEGAL!!\n");
+        for (iA = 0 ; iA < 3 ; iA ++)
+        {
+            //if angle not legal set to last legal value
+            apCurrXYZ[iA] = lastLegal[iA];
+        }
+     }
+ 
+ //printf ("output: - base = %d, shoulder = %d, gripper = %d, xE = %f, yE = %f, zE = %f\n", mBaseOut, mShoulderOut, mGripperOut, apNewXYZ[X], apNewXYZ[Y], apNewXYZ[Z]);
+ //cin.ignore(2);         
+      
+}
+
+
+/****************************************************
+* Map
+***************************************************/
+int MapValueToPWMRange(int aAngle, int aAngleInMinimum, int aAngleInMaximum, int aAngleOutMinimum, int aAngleOutMaximum)
+{
+ return (aAngle - aAngleInMinimum) * (aAngleOutMaximum - aAngleOutMinimum) / (aAngleInMaximum - aAngleInMinimum) + aAngleOutMinimum;
+}
+
+
+
+/*************************************************
+* 
+* Send Task
+************************************************/
+
+
+
+void vConfigureTimerForRunTimeStats(void)
+{
+    /* use alt_timestamp_start, alt_timestamp,alt_timestamp_freq */
+    
+  //  alt_timestamp_start();
+}

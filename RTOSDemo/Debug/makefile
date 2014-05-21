@@ -46,7 +46,7 @@ SYSTEM_DIR := /home/netlab/mehall/nios2-ide-workspace-11.0/RTOSDemo_syslib
 # If changed a new configuration folder (e.g. Release) is generated with all the generated and built files
 SYS_CONFIG := Debug
 
-PTF := /home/netlab/mehall/Altera_Systems_Labs/EDM_Standard/DE0_SOPC.ptf
+PTF := /home/netlab/mehall/year3/ecd/EDM_Standard/DE0_SOPC.ptf
 
 # Change this setting from Window->Preferences->Nios II Run and Build Settings
 DO_MAKE_OBJDUMP := 0

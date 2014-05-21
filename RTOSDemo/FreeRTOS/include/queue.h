@@ -1247,7 +1247,7 @@ portBASE_TYPE xQueueGiveMutexRecursive( xQueueHandle xMutex );
  * name that the kernel aware debugger will display.
  */
 #if configQUEUE_REGISTRY_SIZE > 0
-	void vQueueAddToRegistry( xQueueHandle xQueue, signed char *pcName );
+	void vQueueAddToRegistry( xQueueHandle rtosQueue, signed char *pcName );
 #endif
 
 

@@ -6,7 +6,7 @@
 #define DEFAULT_BASE 75
 #define DEFAULT_SHOULDER 75
 #define DEFAULT_ELBOW 83
-#define DEFAULT_GRIPPER 100
+#define DEFAULT_GRIPPER 51
 
 #define BASE 0
 #define SHOULDER 1

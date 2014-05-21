@@ -178,8 +178,8 @@ unsigned portBASE_TYPE uxQueueMessagesWaitingFromISR( const xQueueHandle pxQueue
 
 	/* Removes a queue from the registry by simply setting the pcQueueName
 	member to NULL. */
-	static void vQueueUnregisterQueue( xQueueHandle xQueue ) PRIVILEGED_FUNCTION;
-	void vQueueAddToRegistry( xQueueHandle xQueue, signed char *pcQueueName ) PRIVILEGED_FUNCTION;
+	static void vQueueUnregisterQueue( xQueueHandle rtosQueue ) PRIVILEGED_FUNCTION;
+	void vQueueAddToRegistry( xQueueHandle rtosQueue, signed char *pcQueueName ) PRIVILEGED_FUNCTION;
 #endif
 
 /*
@@ -1420,7 +1420,7 @@ signed portBASE_TYPE xReturn;
 
 #if configQUEUE_REGISTRY_SIZE > 0
 
-	void vQueueAddToRegistry( xQueueHandle xQueue, signed char *pcQueueName )
+	void vQueueAddToRegistry( xQueueHandle rtosQueue, signed char *pcQueueName )
 	{
 	unsigned portBASE_TYPE ux;
 
@@ -1432,7 +1432,7 @@ signed portBASE_TYPE xReturn;
 			{
 				/* Store the information on this queue. */
 				xQueueRegistry[ ux ].pcQueueName = pcQueueName;
-				xQueueRegistry[ ux ].xHandle = xQueue;
+				xQueueRegistry[ ux ].xHandle = rtosQueue;
 				break;
 			}
 		}
@@ -1443,7 +1443,7 @@ signed portBASE_TYPE xReturn;
 
 #if configQUEUE_REGISTRY_SIZE > 0
 
-	static void vQueueUnregisterQueue( xQueueHandle xQueue )
+	static void vQueueUnregisterQueue( xQueueHandle rtosQueue )
 	{
 	unsigned portBASE_TYPE ux;
 
@@ -1451,7 +1451,7 @@ signed portBASE_TYPE xReturn;
 		registry. */
 		for( ux = 0; ux < configQUEUE_REGISTRY_SIZE; ux++ )
 		{
-			if( xQueueRegistry[ ux ].xHandle == xQueue )
+			if( xQueueRegistry[ ux ].xHandle == rtosQueue )
 			{
 				/* Set the name to NULL to show that this slot if free again. */
 				xQueueRegistry[ ux ].pcQueueName = NULL;
